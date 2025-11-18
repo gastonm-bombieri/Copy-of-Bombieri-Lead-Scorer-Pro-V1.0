@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { LeadData, ScoreResult, Recommendations, initialLeadData, HistoricLead, ScorableLeadData } from './types';
-import { getLeadRecommendations } from './services/geminiService';
+import { analyzeLead, saveLead, getLeadHistory } from './services/geminiService';
 import { MAX_POSSIBLE_WEIGHTED_SCORE, WEIGHTED_CRITERIA } from './constants';
 import Header from './components/Header';
 import LeadForm from './components/LeadForm';
@@ -9,7 +9,6 @@ import RecommendationsDisplay from './components/RecommendationsDisplay';
 import HistoryList from './components/HistoryList';
 import Login from './components/Login';
 
-const LOCAL_STORAGE_KEY = 'bombieriLeadHistory';
 const AUTH_STORAGE_KEY = 'bombieriAuth';
 
 function App() {
@@ -66,35 +65,25 @@ function App() {
   const handleLogout = () => {
     try {
         localStorage.removeItem(AUTH_STORAGE_KEY);
-        localStorage.removeItem(LOCAL_STORAGE_KEY);
     } catch (e) {
-        console.error("Failed to clear state from localStorage", e);
+        console.error("Failed to clear auth state from localStorage", e);
     }
     setIsAuthenticated(false);
     setLeadHistory([]);
     handleReset();
   };
 
+  // Cargar el historial desde el backend al autenticarse
   useEffect(() => {
-    if (!isAuthenticated) return;
-    try {
-      const storedHistory = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (storedHistory) {
-        setLeadHistory(JSON.parse(storedHistory));
-      }
-    } catch (e) {
-      console.error("Failed to load history from localStorage", e);
+    if (isAuthenticated) {
+      getLeadHistory()
+        .then(setLeadHistory)
+        .catch(err => {
+          console.error(err);
+          setError("No se pudo cargar el historial de leads.");
+        });
     }
   }, [isAuthenticated]);
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(leadHistory));
-    } catch (e) {
-      console.error("Failed to save history to localStorage", e);
-    }
-  }, [leadHistory, isAuthenticated]);
 
   const handleLogin = () => {
     try {
@@ -145,21 +134,24 @@ function App() {
     };
 
     try {
-      const geminiResponse = await getLeadRecommendations(readableData, newScoreResult);
-      const parsedRecommendations: Recommendations = JSON.parse(geminiResponse);
-      setRecommendations(parsedRecommendations);
+      // 1. Obtener recomendaciones del backend
+      const newRecommendations = await analyzeLead(readableData, newScoreResult);
+      setRecommendations(newRecommendations);
 
-      const newHistoricLead: HistoricLead = {
-        id: new Date().toISOString(),
+      // 2. Guardar el lead completo en el backend
+      const newHistoricLeadData = {
         formData: data,
         readableData: readableData,
         scoreResult: newScoreResult,
-        recommendations: parsedRecommendations,
+        recommendations: newRecommendations,
       };
-      setLeadHistory(prev => [newHistoricLead, ...prev]);
+      const savedLead = await saveLead(newHistoricLeadData);
 
-    } catch (e) {
-      setError('Hubo un error al generar las recomendaciones. Por favor, intente de nuevo.');
+      // 3. Actualizar el historial en el estado local
+      setLeadHistory(prev => [savedLead, ...prev]);
+
+    } catch (e: any) {
+      setError(e.message || 'Hubo un error en el proceso. Por favor, intente de nuevo.');
       console.error(e);
     } finally {
       setIsLoading(false);
@@ -219,9 +211,12 @@ function App() {
   };
 
   const handleClearHistory = () => {
-    if (window.confirm("¿Está seguro de que desea borrar todo el historial de leads? Esta acción no se puede deshacer.")) {
-      setLeadHistory([]);
-    }
+    alert("La función de borrar historial ha sido deshabilitada en esta versión.");
+    // En un futuro, esto debería llamar a un endpoint DELETE /api/leads
+    // if (window.confirm("¿Está seguro de que desea borrar todo el historial de leads? Esta acción no se puede deshacer.")) {
+    //   // Llamar al servicio para borrar el historial en el backend
+    //   // Y luego actualizar el estado: setLeadHistory([]);
+    // }
   };
 
   if (!isAuthenticated) {
