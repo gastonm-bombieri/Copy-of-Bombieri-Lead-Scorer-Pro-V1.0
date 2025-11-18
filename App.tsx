@@ -7,10 +7,19 @@ import LeadForm from './components/LeadForm';
 import ScoreDisplay from './components/ScoreDisplay';
 import RecommendationsDisplay from './components/RecommendationsDisplay';
 import HistoryList from './components/HistoryList';
+import Login from './components/Login';
 
 const LOCAL_STORAGE_KEY = 'bombieriLeadHistory';
+const AUTH_STORAGE_KEY = 'bombieriAuth';
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(AUTH_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [leadData, setLeadData] = useState<LeadData>(initialLeadData);
   const [scoreResult, setScoreResult] = useState<ScoreResult | null>(null);
   const [recommendations, setRecommendations] = useState<Recommendations | null>(null);
@@ -46,7 +55,28 @@ function App() {
     setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
   };
 
+  const handleReset = useCallback(() => {
+    setLeadData(initialLeadData);
+    setScoreResult(null);
+    setRecommendations(null);
+    setError(null);
+    setIsLoading(false);
+  }, []);
+
+  const handleLogout = () => {
+    try {
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+        localStorage.removeItem(LOCAL_STORAGE_KEY);
+    } catch (e) {
+        console.error("Failed to clear state from localStorage", e);
+    }
+    setIsAuthenticated(false);
+    setLeadHistory([]);
+    handleReset();
+  };
+
   useEffect(() => {
+    if (!isAuthenticated) return;
     try {
       const storedHistory = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (storedHistory) {
@@ -55,15 +85,26 @@ function App() {
     } catch (e) {
       console.error("Failed to load history from localStorage", e);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(leadHistory));
     } catch (e) {
       console.error("Failed to save history to localStorage", e);
     }
-  }, [leadHistory]);
+  }, [leadHistory, isAuthenticated]);
+
+  const handleLogin = () => {
+    try {
+        localStorage.setItem(AUTH_STORAGE_KEY, 'true');
+    } catch (e) {
+        console.error("Failed to save auth state to localStorage", e);
+    }
+    setIsAuthenticated(true);
+  };
+
 
   const handleScore = useCallback(async (data: LeadData) => {
     setIsLoading(true);
@@ -183,18 +224,14 @@ function App() {
     }
   };
 
-  const handleReset = () => {
-    setLeadData(initialLeadData);
-    setScoreResult(null);
-    setRecommendations(null);
-    setError(null);
-    setIsLoading(false);
-  };
+  if (!isAuthenticated) {
+    return <Login onLogin={handleLogin} />;
+  }
 
   return (
     <div className="min-h-screen font-ibm-plex text-neutral-dark dark:text-slate-100 p-4 sm:p-6 md:p-8">
       <div className="max-w-screen-2xl mx-auto">
-        <Header theme={theme} toggleTheme={toggleTheme} />
+        <Header theme={theme} toggleTheme={toggleTheme} onLogout={handleLogout} />
         <main className="mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
           <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-6 md:p-8 lg:col-span-5">
             <h2 className="font-sora text-2xl text-primary dark:text-secondary mb-6">Información del Lead</h2>
